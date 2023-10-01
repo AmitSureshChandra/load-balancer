@@ -1,13 +1,14 @@
 package main
 
 import (
+	"io"
 	"log"
-	"net"
 	"net/http"
+	"strconv"
 	"sync"
 )
 
-var backendServers = []string{"localhost:8090", "localhost:8091"}
+var backendServers = []string{"http://localhost:9000", "http://localhost:9001"}
 var curIndex int
 var mu sync.Mutex
 
@@ -19,35 +20,17 @@ func main() {
 		log.Println(backendAdd)
 
 		// create a proxy connection to backend server
-		backendConn, err := net.Dial("tcp", backendAdd)
+		backendResp, err := http.Get(backendAdd)
 
 		if err != nil {
 			http.Error(writer, "Error connecting to backend", http.StatusServiceUnavailable)
 			return
 		}
-		defer backendConn.Close()
 
-		log.Println("backend connected")
+		defer backendResp.Body.Close()
 
-		err = request.Write(backendConn)
-		log.Println("req written")
+		_, err = io.Copy(writer, backendResp.Body)
 
-		if err != nil {
-			http.Error(writer, "Error Forwarding Req", http.StatusBadGateway)
-			return
-		}
-
-		resData := make([]byte, 1024)
-
-		_, err = backendConn.Read(resData)
-		if err != nil {
-			return
-		}
-
-		_, err = writer.Write([]byte(backendAdd))
-
-		//_, err = io.Copy(writer, backendConn)
-		log.Println("res copied")
 		if err != nil {
 			return
 		}
@@ -62,9 +45,12 @@ func main() {
 func getNextBackend() string {
 	mu.Lock()
 	defer mu.Unlock()
-	if len(backendServers) == 0 {
+	n := len(backendServers)
+	if n == 0 {
 		return ""
 	}
-	curIndex := (curIndex + 1) % len(backendServers)
+	curIndex++
+	curIndex %= n
+	log.Println("curIndex " + strconv.Itoa(curIndex))
 	return backendServers[curIndex]
 }
